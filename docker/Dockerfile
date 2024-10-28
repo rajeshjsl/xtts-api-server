@@ -64,16 +64,22 @@ ENV XTTS_PORT=8020 \
     OUTPUT_FOLDER="/app/xtts-server/output" \
     MODELS_FOLDER="/app/xtts-server/models"
 
+# Create a script to run the server
+RUN echo '#!/bin/bash\n\
+python3 -m xtts_api_server \
+  --host ${XTTS_HOST} \
+  --port ${XTTS_PORT} \
+  --speaker-folder ${SPEAKERS_FOLDER} \
+  --output ${OUTPUT_FOLDER} \
+  --model-folder ${MODELS_FOLDER} \
+  --tunnel ${XTTS_URL} \
+  --device cpu \
+  --listen \
+  --use-cache' > /app/run.sh && chmod +x /app/run.sh
+
 # Set healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${XTTS_PORT}/health || exit 1
 
-# Run xtts_api_server when the container starts
-CMD ["sh", "-c", "python3 -m xtts_api_server \
-    --listen \
-    -p ${XTTS_PORT} \
-    -h ${XTTS_HOST} \
-    -t ${XTTS_URL} \
-    -sf ${SPEAKERS_FOLDER} \
-    -o ${OUTPUT_FOLDER} \
-    -mf ${MODELS_FOLDER}"]
+# Run the server
+CMD ["/app/run.sh"]
