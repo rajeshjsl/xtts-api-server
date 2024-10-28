@@ -81,9 +81,9 @@ exec python3 -m xtts_api_server \
 # Expose the container port
 EXPOSE 8020
 
-# Set healthcheck to wait for model loading
+# Set healthcheck to use root endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:$XTTS_PORT/health || exit 1
+    CMD curl -f http://localhost:$XTTS_PORT/ || exit 1
 
 # Run the start script
 CMD ["/app/start.sh"]
