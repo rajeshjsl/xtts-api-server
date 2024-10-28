@@ -1,6 +1,6 @@
 # if building via docker compose, for coolify, put base directory as /docker and docker compose location as /docker-compose.yml
 
-version: '3.4'
+version: '3.9'
 services:
   xttsapiserver:
     image: xttsapiserver
