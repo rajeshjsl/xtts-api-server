@@ -7,7 +7,7 @@ services:
     env_file: .env
     build:
       context: ..
-      dockerfile: ./docker/Dockerfile
+      dockerfile: ./docker/Dockerfile.minimal
     volumes:
       - xtts-server:/app/xtts-server
     environment:
