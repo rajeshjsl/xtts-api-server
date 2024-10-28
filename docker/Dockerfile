@@ -17,7 +17,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SPEAKERS_FOLDER="/app/xtts-server/speakers" \
     OUTPUT_FOLDER="/app/xtts-server/output" \
     MODELS_FOLDER="/app/xtts-server/models" \
-    MODEL_SOURCE="local"
+    MODEL_SOURCE="local" \
+    USE_CACHE="false"
 
 # Install required packages and clean up in a single layer
 RUN apt-get update && \
@@ -65,6 +66,12 @@ RUN echo '#!/bin/bash\n\
 # Wait for system to settle\n\
 sleep 5\n\
 \n\
+# Prepare cache argument based on environment variable\n\
+CACHE_ARG=""\n\
+if [ "$USE_CACHE" = "true" ]; then\n\
+    CACHE_ARG="--use-cache"\n\
+fi\n\
+\n\
 # Start the server with explicit parameters\n\
 exec python3 -m xtts_api_server \
     --host $XTTS_HOST \
@@ -75,7 +82,7 @@ exec python3 -m xtts_api_server \
     --model-folder $MODELS_FOLDER \
     --model-source $MODEL_SOURCE \
     --listen \
-    --use-cache' > /app/start.sh && \
+    $CACHE_ARG' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Expose the container port
