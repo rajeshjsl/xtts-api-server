@@ -10,7 +10,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PATH="/root/.cargo/bin:${PATH}"
+    PATH="/root/.cargo/bin:${PATH}" \
+    XTTS_PORT=8020 \
+    XTTS_HOST="0.0.0.0" \
+    XTTS_URL="http://localhost:8020" \
+    SPEAKERS_FOLDER="/app/xtts-server/speakers" \
+    OUTPUT_FOLDER="/app/xtts-server/output" \
+    MODELS_FOLDER="/app/xtts-server/models" \
+    MODEL_SOURCE="local"
 
 # Install required packages and clean up in a single layer
 RUN apt-get update && \
@@ -53,33 +60,30 @@ RUN pip install --no-cache-dir sudachipy
 # Install xtts-api-server
 RUN pip install --no-cache-dir xtts-api-server
 
+# Create a startup script
+RUN echo '#!/bin/bash\n\
+# Wait for system to settle\n\
+sleep 5\n\
+\n\
+# Start the server with explicit parameters\n\
+exec python3 -m xtts_api_server \
+    --host $XTTS_HOST \
+    --port $XTTS_PORT \
+    --device cpu \
+    --speaker-folder $SPEAKERS_FOLDER \
+    --output $OUTPUT_FOLDER \
+    --model-folder $MODELS_FOLDER \
+    --model-source $MODEL_SOURCE \
+    --listen \
+    --use-cache' > /app/start.sh && \
+    chmod +x /app/start.sh
+
 # Expose the container port
 EXPOSE 8020
 
-# Set default environment variables
-ENV XTTS_PORT=8020 \
-    XTTS_HOST="0.0.0.0" \
-    XTTS_URL="http://localhost:8020" \
-    SPEAKERS_FOLDER="/app/xtts-server/speakers" \
-    OUTPUT_FOLDER="/app/xtts-server/output" \
-    MODELS_FOLDER="/app/xtts-server/models"
+# Set healthcheck to wait for model loading
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:$XTTS_PORT/health || exit 1
 
-# Create a script to run the server
-RUN echo '#!/bin/bash\n\
-python3 -m xtts_api_server \
-  --host ${XTTS_HOST} \
-  --port ${XTTS_PORT} \
-  --speaker-folder ${SPEAKERS_FOLDER} \
-  --output ${OUTPUT_FOLDER} \
-  --model-folder ${MODELS_FOLDER} \
-  --tunnel ${XTTS_URL} \
-  --device cpu \
-  --listen \
-  --use-cache' > /app/run.sh && chmod +x /app/run.sh
-
-# Set healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:${XTTS_PORT}/health || exit 1
-
-# Run the server
-CMD ["/app/run.sh"]
+# Run the start script
+CMD ["/app/start.sh"]
