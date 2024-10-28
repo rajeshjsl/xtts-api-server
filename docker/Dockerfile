@@ -3,14 +3,14 @@ FROM ubuntu:22.04
 
 # Set label for the docker image
 LABEL description="Docker image for xtts-api-server (ARM64 CPU Version)" \
-      maintainer="Your Name <your.email@example.com>" \
       version="1.0"
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PATH="/root/.cargo/bin:${PATH}"
 
 # Install required packages and clean up in a single layer
 RUN apt-get update && \
@@ -26,10 +26,16 @@ RUN apt-get update && \
         make \
         g++ \
         ffmpeg \
-        curl && \
+        curl \
+        pkg-config \
+        build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
     python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel ninja virtualenv
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN . "$HOME/.cargo/env"
 
 # Create necessary directories
 RUN mkdir -p /app/xtts-server/speakers \
@@ -41,7 +47,10 @@ WORKDIR /app
 # Install CPU version of PyTorch for ARM64
 RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Install xtts-api-server without deepspeed (since it's CPU-only)
+# Install sudachipy separately first
+RUN pip install --no-cache-dir sudachipy
+
+# Install xtts-api-server
 RUN pip install --no-cache-dir xtts-api-server
 
 # Expose the container port
@@ -59,7 +68,7 @@ ENV XTTS_PORT=8020 \
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${XTTS_PORT}/health || exit 1
 
-# Run xtts_api_server when the container starts (without deepspeed)
+# Run xtts_api_server when the container starts
 CMD ["sh", "-c", "python3 -m xtts_api_server \
     --listen \
     -p ${XTTS_PORT} \
