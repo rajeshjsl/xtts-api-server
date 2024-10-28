@@ -1,20 +1,19 @@
 version: '3.4'
-
 services:
   xttsapiserver:
     image: xttsapiserver
     env_file: .env
     build:
-      context: ..
-      dockerfile: ./docker/Dockerfile
-    ports:
-      - "${HOST_PORT:-8020}:${CONTAINER_PORT:-8020}"
+      context: .
+      dockerfile: Dockerfile
     volumes:
-      - ./xtts-server:/xtts-server
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['0']
-              capabilities: [gpu]
+      - xtts-server:/app/xtts-server
+    environment:
+      - XTTS_PORT=${CONTAINER_PORT:-8020}
+      - XTTS_HOST=0.0.0.0
+      - XTTS_URL=http://localhost:${CONTAINER_PORT:-8020}
+    restart: unless-stopped
+
+volumes:
+  xtts-server:
+    name: xtts-server
