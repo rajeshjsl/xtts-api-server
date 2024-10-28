@@ -4,8 +4,8 @@ services:
     image: xttsapiserver
     env_file: .env
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: ./docker/Dockerfile
     volumes:
       - xtts-server:/app/xtts-server
     environment:
