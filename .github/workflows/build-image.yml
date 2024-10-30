@@ -14,13 +14,15 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-
-      - name: Build images
-        run: |
-          # Create and use buildx builder
-          docker buildx create --name mybuilder --driver docker-container --use
-          # Build for multiple platforms
-          docker compose -f /docker/docker-compose.yml build --no-cache
+        
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: ./
+          file: ./docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          load: true
           
       - name: Save Docker images
         run: |
