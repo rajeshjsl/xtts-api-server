@@ -20,7 +20,7 @@ jobs:
           # Create and use buildx builder
           docker buildx create --name mybuilder --driver docker-container --use
           # Build for multiple platforms
-          docker compose -f docker-compose.yml build --no-cache
+          docker compose -f /docker/docker-compose.yml build --no-cache
           
       - name: Save Docker images
         run: |
