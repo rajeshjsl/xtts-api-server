@@ -1,34 +1,32 @@
-name: package to docker and push to dockerhub
+name: Docker Multi-arch Build
 
 on:
-  release:
-    types: [published,edited]
+  workflow_dispatch:  # Enables manual trigger from GitHub UI
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Out Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v4
-        with:
-          context: ./
-          file: ./docker/Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/xtts-api-server:latest
+      - name: Build images
+        run: |
+          docker buildx create --use
+          docker compose build --platform linux/amd64,linux/arm64 --output type=docker
 
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+      - name: Save Docker images
+        run: |
+          mkdir -p images
+          docker save $(docker images -q) -o images/docker-images.tar
+
+      - name: Upload images as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-images
+          path: images/docker-images.tar
