@@ -15,22 +15,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
         
-      - name: Build and push
+      - name: Build
         uses: docker/build-push-action@v4
         with:
           context: ./
-          file: ./docker/Dockerfile.minimal
+          file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: false
-          load: true
+          outputs: type=docker
+          load: false
           
-      - name: Save Docker images
+      - name: Test amd64
         run: |
-          mkdir -p images
-          docker save $(docker images -q) -o images/docker-images.tar
-
-      - name: Upload images as artifact
+          docker run --rm --platform linux/amd64 $(docker images -q | head -n1) test-command
+          
+      - name: Test arm64
+        run: |
+          docker run --rm --platform linux/arm64 $(docker images -q | head -n1) test-command
+          
+      - name: Save images
+        run: |
+          docker save $(docker images -q) -o images.tar
+          
+      - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: docker-images
-          path: images/docker-images.tar
+          path: images.tar
