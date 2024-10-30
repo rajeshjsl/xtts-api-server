@@ -1,6 +1,5 @@
 # Build stage
 FROM python:3.10-slim as builder
-
 # Set build-time environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,20 +22,17 @@ RUN apt-get update && \
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel ninja virtualenv && \
     pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir sudachipy && \
+    pip install --no-cache-dir sudachipy
 
-# Copy local package files
-COPY ./xtts_api_server /app/xtts_api_server
-COPY ./setup.py /app/
-COPY ./requirements.txt /app/
+# Copy only the package directory
+COPY ./xtts_api_server /app/xtts_api_server/
 
-# Install the local package
+# Install the package directly from the directory
 WORKDIR /app
-RUN pip install -e .
+RUN cd xtts_api_server && pip install .
 
 # Final stage
 FROM python:3.10-slim
-
 # Set runtime environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
