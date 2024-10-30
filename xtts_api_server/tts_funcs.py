@@ -63,7 +63,10 @@ official_model_list_v2 = ["2.0.0","2.0.1","2.0.2","2.0.3"]
 reversed_supported_languages = {name: code for code, name in supported_languages.items()}
 
 class TTSWrapper:
-    def __init__(self,output_folder = "./output", speaker_folder="./speakers",model_folder="./xtts_folder",lowvram = False,model_source = "local",model_version = "2.0.2",device = "cuda",deepspeed = False,enable_cache_results = True):
+    def __init__(self, output_folder="./output", speaker_folder="./speakers", 
+                 model_folder="./xtts_folder", lowvram=False, model_source="local", 
+                 model_version="2.0.2", device="cuda", deepspeed=False, 
+                 enable_cache_results=True, use_builtin_speakers=True):
 
         self.cuda = device # If the user has chosen what to use, we rewrite the value to the value we want to use
         self.device = 'cpu' if lowvram else (self.cuda if torch.cuda.is_available() else "cpu")
@@ -73,6 +76,13 @@ class TTSWrapper:
 
         self.model_source = model_source
         self.model_version = model_version
+
+        self.use_builtin_speakers = use_builtin_speakers
+        # Initialize speaker caches
+        self.latents_cache = {}
+        self.builtin_speakers = {}
+        
+        
         self.tts_settings = default_tts_settings
         self.stream_chunk_size = 100
 
@@ -94,6 +104,41 @@ class TTSWrapper:
             # Reset the contents of the cache file at each initialization.
             with open(self.cache_file_path, 'w') as cache_file:
                 json.dump({}, cache_file)
+
+    def load_builtin_speakers(self):
+        """Load built-in speakers from speakers_xtts.pth"""
+        speakers_path = os.path.join(self.model_folder, self.model_version, "speakers_xtts.pth")
+        
+        if not os.path.exists(speakers_path):
+            logger.warning(f"Built-in speakers file not found at {speakers_path}")
+            return
+            
+        try:
+            speaker_data = torch.load(speakers_path, map_location=self.device)
+            loaded = 0
+            
+            for speaker_name, data in speaker_data.items():
+                # Handle both direct format and nested format
+                if isinstance(data, dict) and "gpt_cond_latent" in data and "speaker_embedding" in data:
+                    speaker_info = data
+                elif isinstance(data, dict) and "model" in data:
+                    # Handle nested format if present
+                    speaker_info = data["model"]["speaker_manager"]["speakers"][speaker_name]
+                else:
+                    continue
+                    
+                self.builtin_speakers[speaker_name] = {
+                    "gpt_cond_latent": speaker_info["gpt_cond_latent"].to(self.device),
+                    "speaker_embedding": speaker_info["speaker_embedding"].to(self.device),
+                    "is_builtin": True
+                }
+                loaded += 1
+                
+            logger.info(f"Loaded {loaded} built-in speakers from speakers_xtts.pth")
+            
+        except Exception as e:
+            logger.error(f"Error loading built-in speakers: {str(e)}")
+
     # HELP FUNC
     def isModelOfficial(self,model_version):
         if model_version in official_model_list:
@@ -185,6 +230,12 @@ class TTSWrapper:
            is_official_model = False
  
            self.load_local_model(load = is_official_model)
+
+           # Load built-in speakers after model is loaded
+           if self.use_builtin_speakers:
+               self.load_builtin_speakers()
+
+
            if self.lowvram == False:
              # Due to the fact that we create latents on the cpu and load them from the cuda we get an error
              logger.info("Pre-create latents for all current speakers")
@@ -254,12 +305,27 @@ class TTSWrapper:
                 torch.cuda.empty_cache()
 
     # SPEAKER FUNCS
-    def get_or_create_latents(self, speaker_name, speaker_wav):
-        if speaker_name not in self.latents_cache:
-            logger.info(f"creating latents for {speaker_name}: {speaker_wav}")
+    def get_or_create_latents(self, speaker_name, speaker_wav=None):
+        """Get latents from built-in speakers or create from WAV"""
+        # First check built-in speakers
+        if speaker_name in self.builtin_speakers:
+            return (
+                self.builtin_speakers[speaker_name]["gpt_cond_latent"],
+                self.builtin_speakers[speaker_name]["speaker_embedding"]
+            )
+            
+        # Then check cached latents
+        if speaker_name in self.latents_cache:
+            return self.latents_cache[speaker_name]
+            
+        # Finally create new latents if WAV provided
+        if speaker_wav is not None:
+            logger.info(f"Creating latents for {speaker_name}: {speaker_wav}")
             gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(speaker_wav)
             self.latents_cache[speaker_name] = (gpt_cond_latent, speaker_embedding)
-        return self.latents_cache[speaker_name]
+            return self.latents_cache[speaker_name]
+            
+        raise ValueError(f"Speaker {speaker_name} not found and no WAV provided")
 
     def create_latents_for_all(self):
         speakers_list = self._get_speakers()
@@ -356,40 +422,43 @@ class TTSWrapper:
         return wav_files
 
     def _get_speakers(self):
-        """
-        Gets info on all the speakers.
-
-        Returns a list of {speaker_name,speaker_wav,preview} dicts
-        """
+        """Get all available speakers (built-in and local)"""
         speakers = []
+        
+        # Add built-in speakers
+        if self.use_builtin_speakers:
+            for speaker_name in self.builtin_speakers:
+                speakers.append({
+                    'speaker_name': speaker_name,
+                    'speaker_wav': None,  # Built-in speakers don't have WAV files
+                    'preview': None,
+                    'is_builtin': True
+                })
+
+        # Add local speakers (existing code)
         for f in os.listdir(self.speaker_folder):
-            full_path = os.path.join(self.speaker_folder,f)
+            full_path = os.path.join(self.speaker_folder, f)
             if os.path.isdir(full_path):
-                # multi-sample voice
-                subdir_files = self.get_wav_files(full_path) 
+                subdir_files = self.get_wav_files(full_path)
                 if len(subdir_files) == 0:
-                    # no wav files in directory
                     continue
 
-                speaker_name = f
-                speaker_wav = [os.path.join(self.speaker_folder,f,s) for s in subdir_files]
-                # use the first file found as the preview
-                preview = os.path.join(f,subdir_files[0])
                 speakers.append({
-                        'speaker_name': speaker_name,
-                        'speaker_wav': speaker_wav,
-                        'preview': preview
-                        })
+                    'speaker_name': f,
+                    'speaker_wav': [os.path.join(self.speaker_folder, f, s) for s in subdir_files],
+                    'preview': os.path.join(f, subdir_files[0]),
+                    'is_builtin': False
+                })
 
             elif f.endswith('.wav'):
                 speaker_name = os.path.splitext(f)[0]
-                speaker_wav = full_path 
-                preview = f
                 speakers.append({
-                        'speaker_name': speaker_name,
-                        'speaker_wav': speaker_wav,
-                        'preview': preview
-                        })
+                    'speaker_name': speaker_name,
+                    'speaker_wav': full_path,
+                    'preview': f,
+                    'is_builtin': False
+                })
+
         return speakers
 
     def get_speakers(self):
@@ -409,32 +478,27 @@ class TTSWrapper:
 
     # Special format for SillyTavern
     def get_speakers_special(self):
+        """Enhanced version returning both built-in and local speakers"""
         BASE_URL = os.getenv('BASE_URL', '127.0.0.1:8020')
-        BASE_HOST = os.getenv('BASE_HOST', '127.0.0.1')
-        BASE_PORT = os.getenv('BASE_PORT', '8020')
         TUNNEL_URL = os.getenv('TUNNEL_URL', '')
-
-        is_local_host = BASE_HOST == '127.0.0.1' or BASE_HOST == "localhost"
-
-        if TUNNEL_URL == "" and not is_local_host:
-            TUNNEL_URL = f"http://{self.get_local_ip()}:{BASE_PORT}"
+        
         speakers_special = []
-
         speakers = self._get_speakers()
-
+        
         for speaker in speakers:
-            if TUNNEL_URL == "":
-                preview_url = f"{BASE_URL}/sample/{speaker['preview']}"
-            else:
-                preview_url = f"{TUNNEL_URL}/sample/{speaker['preview']}"
-
-            speaker_special = {
-                    'name': speaker['speaker_name'],
-                    'voice_id': speaker['speaker_name'],
-                    'preview_url': preview_url
+            speaker_info = {
+                'name': speaker['speaker_name'],
+                'voice_id': speaker['speaker_name'],
+                'is_builtin': speaker.get('is_builtin', False)
             }
-            speakers_special.append(speaker_special)
-
+            
+            # Add preview URL only for local speakers
+            if not speaker['is_builtin'] and speaker['preview']:
+                preview_url = f"{TUNNEL_URL or BASE_URL}/sample/{speaker['preview']}"
+                speaker_info['preview_url'] = preview_url
+                
+            speakers_special.append(speaker_info)
+            
         return speakers_special
 
 
@@ -516,28 +580,28 @@ class TTSWrapper:
         )
 
     def get_speaker_wav(self, speaker_name_or_path):
-        """ Gets the speaker_wav(s) for a given speaker name. """
+        """Gets the speaker_wav(s) for a given speaker name or returns None for built-in speakers"""
+        # First check if this is a built-in speaker
+        if speaker_name_or_path in self.builtin_speakers:
+            return None  # Built-in speakers don't need WAV files
+            
+        # Rest of the existing WAV file handling
         if speaker_name_or_path.endswith('.wav'):
-            # it's a file name
             if os.path.isabs(speaker_name_or_path):
-                # absolute path; nothing to do
                 speaker_wav = speaker_name_or_path
             else:
-                # make it a full path
                 speaker_wav = os.path.join(self.speaker_folder, speaker_name_or_path)
         else:
-            # it's a speaker name
             full_path = os.path.join(self.speaker_folder, speaker_name_or_path) 
             wav_file = f"{full_path}.wav"
             if os.path.isdir(full_path):
-                # multi-sample speaker
                 speaker_wav = [ os.path.join(full_path,wav) for wav in self.get_wav_files(full_path) ]
                 if len(speaker_wav) == 0:
-                    raise ValueError(f"no wav files found in {full_path}")
+                    raise ValueError(f"No wav files found in {full_path}")
             elif os.path.isfile(wav_file):
                 speaker_wav = wav_file
             else:
-                raise ValueError(f"Speaker {speaker_name_or_path} not found.")
+                raise ValueError(f"Speaker {speaker_name_or_path} not found in built-in speakers or local files.")
 
         return speaker_wav
 
@@ -597,6 +661,9 @@ class TTSWrapper:
                 else:
                     self.local_generation(clear_text,speaker_name_or_path,speaker_wav,language,output_file)
             else:
+                # For API generation, we must have a WAV file
+                if speaker_wav is None:
+                    raise ValueError("Built-in speakers are not supported in API mode")
                 self.api_generation(clear_text,speaker_wav,language,output_file)
             
             self.switch_model_device() # Unload to CPU if lowram ON
@@ -606,6 +673,7 @@ class TTSWrapper:
             return output_file
 
         except Exception as e:
+            logger.error(f"Error in process_tts_to_file: {str(e)}")
             raise e  # Propagate exceptions for endpoint handling.
 
         
