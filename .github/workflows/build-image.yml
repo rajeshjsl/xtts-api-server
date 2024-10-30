@@ -1,7 +1,7 @@
 name: Docker Multi-arch Build
 
 on:
-  workflow_dispatch:  # Enables manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,9 +17,11 @@ jobs:
 
       - name: Build images
         run: |
-          docker buildx create --use
-          docker compose build --platform linux/amd64,linux/arm64 --output type=docker
-
+          # Create and use buildx builder
+          docker buildx create --name mybuilder --driver docker-container --use
+          # Build for multiple platforms
+          docker compose -f docker-compose.yml build --no-cache
+          
       - name: Save Docker images
         run: |
           mkdir -p images
