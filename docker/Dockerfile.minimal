@@ -24,7 +24,15 @@ RUN apt-get update && \
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel ninja virtualenv && \
     pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir sudachipy && \
-    pip install --no-cache-dir xtts-api-server
+
+# Copy local package files
+COPY ./xtts_api_server /app/xtts_api_server
+COPY ./setup.py /app/
+COPY ./requirements.txt /app/
+
+# Install the local package
+WORKDIR /app
+RUN pip install -e .
 
 # Final stage
 FROM python:3.10-slim
